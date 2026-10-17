@@ -1,0 +1,8 @@
+# Runtime dependencies (downloaded once; Jarvis then runs offline)
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27
+pydantic>=2.5
+cryptography>=42   # HTTPS certificates for the phone app
+# Only needed to run the test suite
+pytest>=8

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Jarvis for Android: a full-screen window onto Jarvis running on your computer. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="local.jarvis.assistant">
+
+    <!-- Needed to reach your computer over Wi-Fi. The app never contacts anything else. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets the app start Jarvis inside Termux on this phone (you approve it once). -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+    <!-- Study Buddy floating over other apps (only after you turn it on and allow it). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- No Usage access: focus sessions only notice activity inside Jarvis, never which other app is open. -->
+
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/AppTheme"
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".CompanionService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="A floating study companion and focus timer that the user turns on" />
+        </service>
+    </application>
+</manifest>

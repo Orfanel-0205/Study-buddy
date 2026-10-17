@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a1430">
+  <meta name="referrer" content="no-referrer">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Jarvis">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="/m/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" href="/static/icons/icon-192.png">
+  <title>Jarvis</title>
+  <link rel="stylesheet" href="/static/mobile.css?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/charts.css?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/companion.css?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/build.css?v={{VERSION}}">
+</head>
+<body>
+  <div id="app"><div class="m-loading">Connecting to Jarvis…</div></div>
+  <div id="sheet-root"></div>
+  <div id="toasts" class="toasts" aria-live="assertive"></div>
+  <noscript>Jarvis needs JavaScript to run.</noscript>
+  <script src="/static/i18n.js?v={{VERSION}}"></script>
+  <script src="/static/markdown.js?v={{VERSION}}"></script>
+  <script src="/static/images.js?v={{VERSION}}"></script>
+  <script src="/static/charts.js?v={{VERSION}}"></script>
+  <script src="/static/build.js?v={{VERSION}}"></script>
+  <script src="/static/sessions.js?v={{VERSION}}"></script>
+  <script src="/static/companion.js?v={{VERSION}}"></script>
+  <script src="/static/mobile.js?v={{VERSION}}"></script>
+</body>
+</html>

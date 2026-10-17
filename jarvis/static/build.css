@@ -1,0 +1,57 @@
+/* Build page (build.js), shared by the computer and the phone; uses each page's color tokens. */
+.bd-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.bd-tabs { flex-wrap: wrap; }
+.bd-tabs button { padding: 7px 12px; font-size: 14px; }
+.bd-body, .bd-out { display: flex; flex-direction: column; gap: 12px; }
+.bd-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bd-card h3 { margin: 0; font-size: 16px; }
+.bd-card h4 { margin: 6px 0 0; font-size: 14px; }
+.bd-card textarea, .bd-card input[type="text"], .bd-card input[type="number"], .bd-card input[type="datetime-local"] { width: 100%; box-sizing: border-box; }
+.bd-muted { margin: 0; color: var(--muted); font-size: 13px; }
+.bd-error { margin: 0; color: var(--danger); }
+.bd-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.bd-inline { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+.bd-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.45; }
+.bd-stack { border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px; }
+.bd-stack summary { cursor: pointer; padding: 4px 0; }
+.bd-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.bd-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.bd-table th, .bd-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.bd-table thead th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.bd-table td:first-child { white-space: nowrap; color: var(--muted); }
+.bd-tree-head { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.bd-tree { margin: 4px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--code-bg); font: 12.5px/1.5 var(--mono); overflow-x: auto; white-space: pre; }
+.bd-matrix input[type="text"] { min-width: 110px; }
+.bd-matrix th[scope="row"] { display: flex; gap: 6px; align-items: center; }
+.bd-matrix th[scope="row"] input { flex: 1; }
+.bd-matrix td select { width: 64px; }
+button.small { padding: 3px 9px; font-size: 12.5px; }
+button.ghost { border-color: transparent; background: transparent; }
+.bd-rank { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 6px; }
+.bd-rank li { display: grid; grid-template-columns: minmax(80px, 1fr) 2fr auto; gap: 10px; align-items: center; font-size: 14px; }
+.bd-bar { height: 10px; border-radius: 999px; background: var(--panel-2); overflow: hidden; }
+.bd-bar span { display: block; height: 100%; border-radius: 999px; background: var(--muted); opacity: .55; }
+.bd-bar span.top { background: var(--accent); opacity: 1; }
+.bd-note { margin: 0; padding: 9px 11px; border-radius: 10px; background: var(--accent-soft); font-size: 13.5px; line-height: 1.45; }
+.bd-note.warn { background: var(--warn-soft); color: var(--text); }
+.bd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 14px; }
+.bd-field { display: flex; flex-direction: column; gap: 3px; font-size: 13.5px; }
+.bd-field small { color: var(--muted); font-size: 12px; }
+.bd-label { font-size: 13.5px; }
+.bd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bd-chips button { border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+.bd-chips button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.bd-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.bd-kpis div { background: var(--panel-2); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+.bd-kpis small { color: var(--muted); font-size: 12px; }
+.bd-kpis strong { font-size: 17px; }
+.bd-chart { min-height: 40px; }
+.bd-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--accent-soft); display: flex; flex-direction: column; gap: 12px; }
+.bd-timeline li { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.bd-timeline li::before { content: ""; position: absolute; left: -20px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.bd-time { font-size: 12.5px; color: var(--muted); }
+@media (max-width: 560px) {
+  .bd-card { padding: 12px; }
+  .bd-rank li { grid-template-columns: 1fr auto; }
+  .bd-rank .bd-bar { grid-column: 1 / -1; grid-row: 2; }
+}

@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="jarvis-token" content="{{JARVIS_TOKEN}}">
+  <meta name="referrer" content="no-referrer">
+  <title>Jarvis</title>
+  <link rel="icon" type="image/png" href="/static/icons/favicon-64.png">
+  <link rel="stylesheet" href="/static/style.css?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/charts.css?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/companion.css?v={{VERSION}}">
+  <link rel="stylesheet" href="/static/build.css?v={{VERSION}}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">J</span> Jarvis</div>
+    <div class="pills">
+      <button id="model-pill" class="pill" title="Local model status — click for details"><span class="dot"></span><span id="model-pill-text">Checking model…</span></button>
+      <span class="pill local" title="Jarvis runs on this computer. Your prompts, code and files are never sent to the internet.">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        Offline · local only
+      </span>
+      <button id="project-pill" class="pill" title="Current project folder — click to change"><span class="dot"></span><span id="project-pill-text">No project</span></button>
+      <button id="phone-pill" class="pill" title="Your phone can use Jarvis over your home Wi-Fi — click for details" hidden><span class="dot"></span><span id="phone-pill-text">Phone access on</span></button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidenav" aria-label="Main">
+      <button data-view="chat" aria-current="page" title="Chat with Jarvis">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><span data-i18n="nav.chat">Chat</span></button>
+      <button data-view="tasks" title="Your tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span data-i18n="nav.tasks">Tasks</span></button>
+      <button data-view="study" title="Flashcards and study">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 5a2 2 0 0 1 2-2h5a3 3 0 0 1 3 3v15a2 2 0 0 0-2-2H2z"/><path d="M22 5a2 2 0 0 0-2-2h-5a3 3 0 0 0-3 3v15a2 2 0 0 1 2-2h8z"/></svg><span data-i18n="nav.study">Study</span></button>
+      <button data-view="learn" title="Guides, coding practice, API Lab and starter decks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 10 12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/></svg><span data-i18n="nav.learn">Learn</span></button>
+      <button data-view="build" title="Plan an idea: tech stack, file structure, decisions, numbers and hackathons">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg><span data-i18n="nav.build">Build</span></button>
+      <button data-view="progress" title="Your progress: studying and developing">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg><span data-i18n="nav.progress">Progress</span></button>
+      <button data-view="project" title="Project folder, files, commands and changes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span data-i18n="nav.project">Project</span></button>
+      <button data-view="activity" title="What Jarvis did this session">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg><span data-i18n="nav.activity">Activity</span></button>
+      <button data-view="settings" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span data-i18n="nav.settings">Settings</span></button>
+      <button data-view="help" title="Setup guide and help">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg><span data-i18n="nav.help">Help</span></button>
+    </nav>
+
+    <main>
+      <!-- ============ CHAT ============ -->
+      <section id="view-chat" class="view" style="overflow:hidden">
+        <div class="chat">
+          <aside class="conv-list" aria-label="Conversations">
+            <div class="head"><button id="new-chat" class="primary">+ New chat</button></div>
+            <ul id="conversations"></ul>
+          </aside>
+          <div class="chat-main">
+            <div id="setup-banner" class="setup-banner" hidden></div>
+            <div id="messages" class="messages" aria-live="polite"><div class="messages-inner" id="messages-inner"></div></div>
+            <form id="composer" class="composer" autocomplete="off">
+              <div class="composer-inner">
+                <div class="composer-tools">
+                  <label class="row" title="Focus Jarvis on one part of the work">Mode <select id="mode" aria-label="Mode"></select></label>
+                  <div class="seg" role="group" aria-label="Answer length">
+                    <button type="button" data-detail="concise" aria-pressed="true">Concise</button>
+                    <button type="button" data-detail="detailed" aria-pressed="false">Detailed</button>
+                  </div>
+                  <label class="check" id="use-project-wrap" title="Search the open project for relevant code and include it"><input type="checkbox" id="use-project" checked> Use project files</label>
+                  <label class="check" id="use-guides-wrap" title="Include matching notes from Jarvis's built-in guides (DevNet, APIs, Git, performance, file structure, workplace)"><input type="checkbox" id="use-guides" checked> Use guides</label>
+                  <label class="check" id="run-tests-wrap" title="Run the project's tests before answering, so Jarvis works from the real results" hidden><input type="checkbox" id="run-tests"> Run tests first</label>
+                  <button type="button" id="add-image" class="small" title="Attach a photo or screenshot (you can also paste or drop one)">📷 Image</button>
+                  <input type="file" id="image-input" accept="image/*" multiple hidden>
+                  <div class="attachments" id="attachments"></div>
+                  <div class="thumbs" id="image-chips"></div>
+                </div>
+                <div class="composer-box">
+                  <textarea id="prompt" rows="2" placeholder="Ask Jarvis anything… (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
+                  <button type="submit" id="send" class="primary">Send</button>
+                  <button type="button" id="stop" class="danger" hidden>Stop</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ TASKS ============ -->
+      <section id="view-tasks" class="view" hidden>
+        <div class="page">
+          <div class="page-head">
+            <h2>Tasks</h2>
+            <span class="spacer"></span>
+            <button id="plan-tasks" title="Ask the local model to suggest an order for your open tasks">Suggest order (AI)</button>
+            <button id="standup" title="Draft a stand-up note (yesterday / today / blockers) from your tasks">Stand-up note</button>
+            <button id="export-tasks" title="Download all tasks as a JSON file">Export</button>
+            <button id="new-task" class="primary">+ New task</button>
+          </div>
+          <div class="task-filters">
+            <select id="filter-status" aria-label="Filter by status">
+              <option value="">All open</option>
+              <option value="todo">To do</option>
+              <option value="in_progress">In progress</option>
+              <option value="blocked">Blocked</option>
+              <option value="done">Done</option>
+            </select>
+            <select id="filter-project" aria-label="Filter by project"><option value="">All projects</option></select>
+            <label class="check"><input type="checkbox" id="show-done"> Show completed</label>
+            <span class="muted small">Sorted: overdue → priority → due date. Reminders appear here when Jarvis is open; there are no notifications while it is closed.</span>
+          </div>
+          <div id="plan-box" hidden></div>
+          <ul id="task-list" class="task-list"></ul>
+        </div>
+      </section>
+
+      <!-- ============ PROJECT ============ -->
+      <section id="view-study" class="view" hidden>
+        <div class="page" id="study-page"></div>
+      </section>
+
+      <section id="view-learn" class="view" hidden>
+        <div class="page" id="learn-page"></div>
+      </section>
+
+      <section id="view-build" class="view" hidden>
+        <div class="page" id="build-page"><div class="page-head"><h2 data-i18n="build.title">Build</h2>
+          <span class="muted small">Stack and file structure for your idea, decisions, numbers and hackathon plans. Works offline.</span></div>
+          <div id="build-root"></div></div>
+      </section>
+
+      <section id="view-progress" class="view" hidden>
+        <div class="page" id="progress-page"></div>
+      </section>
+
+      <section id="view-project" class="view" hidden>
+        <div class="page" id="project-page"></div>
+      </section>
+
+      <!-- ============ ACTIVITY ============ -->
+      <section id="view-activity" class="view" hidden>
+        <div class="page">
+          <div class="page-head">
+            <h2>Activity</h2>
+            <span class="muted small">Everything Jarvis did: files shared with the model, changes, commands, tasks and settings.</span>
+            <span class="spacer"></span>
+            <div class="seg" role="group" aria-label="Scope">
+              <button type="button" data-scope="session" aria-pressed="true">This session</button>
+              <button type="button" data-scope="all" aria-pressed="false">All time</button>
+            </div>
+            <button id="refresh-activity">Refresh</button>
+          </div>
+          <div id="activity-list"></div>
+        </div>
+      </section>
+
+      <!-- ============ SETTINGS ============ -->
+      <section id="view-settings" class="view" hidden>
+        <div class="page" id="settings-page"></div>
+      </section>
+
+      <!-- ============ HELP ============ -->
+      <section id="view-help" class="view" hidden>
+        <div class="page help">
+          <h2>Getting started</h2>
+          <div class="card">
+            <h3>1. Install a local model (one time, needs internet)</h3>
+            <p>Jarvis uses a language model that runs on your own computer. You need to download the model server and one model <strong>once</strong>. After that, everything works without internet.</p>
+            <ol>
+              <li>Download and install <strong>Ollama</strong> from <code>https://ollama.com/download</code>.</li>
+              <li>Open a terminal and download a model. Pick one that fits your memory:
+                <ul>
+                  <li>8 GB RAM: <code>ollama pull qwen3:1.7b</code> (about 1.4 GB) or <code>ollama pull llama3.2:3b</code> (about 2 GB)</li>
+                  <li>16 GB RAM: <code>ollama pull qwen2.5-coder:7b</code> (about 4.7 GB, good for code) or <code>ollama pull gemma3:4b</code> (about 3.3 GB)</li>
+                  <li>32 GB+ RAM or a big GPU: <code>ollama pull qwen2.5-coder:14b</code> (about 9 GB)</li>
+                </ul>
+              </li>
+              <li>Make sure Ollama is running (Windows/macOS: start the Ollama app; Linux: <code>ollama serve</code>).</li>
+              <li>In Jarvis, open <strong>Settings</strong> and pick the model, or leave it on automatic.</li>
+            </ol>
+            <p class="muted small">Prefer llama.cpp or LM Studio? Choose "OpenAI-compatible server" in Settings and enter its local address (for example <code>http://127.0.0.1:8080/v1</code>).</p>
+          </div>
+          <div class="card">
+            <h3>2. What stays on your computer</h3>
+            <ul>
+              <li>Your chats, tasks, settings and history are stored in the Jarvis data folder (shown in Settings).</li>
+              <li>Jarvis talks only to the model server on this computer. It refuses non-local model addresses unless you explicitly allow them in Settings.</li>
+              <li>Files like <code>.env</code>, private keys and credential files are never read or shared with the model. Values that look like passwords or API keys are replaced with <code>[REDACTED]</code>.</li>
+              <li>Jarvis does not browse the web. Smaller local models can be wrong or out of date, so check important facts against official documentation.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>3. Working on a software project</h3>
+            <ol>
+              <li>Go to <strong>Project</strong> and choose your project folder. Jarvis reads only inside that folder.</li>
+              <li>In <strong>Chat</strong>, keep "Use project files" on. Jarvis searches the project and shows which files it used under each answer.</li>
+              <li>When Jarvis writes a full file, use <strong>Propose as file change</strong> on the code block. You'll see a diff and warnings before anything is written, and you can undo it later.</li>
+              <li>Run tests and builds from <strong>Project → Commands</strong>. Commands Jarvis doesn't recognize, and anything that deletes, installs, migrates or uses the internet, need your approval first.</li>
+              <li>Press <strong>Ask Jarvis about this output</strong> to debug using the real error messages.</li>
+            </ol>
+          </div>
+          <div class="card">
+            <h3>Modes</h3>
+            <ul id="help-modes"></ul>
+          </div>
+          <div class="card">
+            <h3>Troubleshooting</h3>
+            <ul>
+              <li><strong>"Ollama is not running"</strong>: start the Ollama app, or run <code>ollama serve</code> in a terminal, then click the model status at the top.</li>
+              <li><strong>"Model is not installed"</strong>: run <code>ollama pull &lt;model&gt;</code> once while online, or choose another model in Settings.</li>
+              <li><strong>Answers are slow</strong>: the first answer loads the model into memory. Choose a smaller model or lower the context size in Settings.</li>
+              <li><strong>Answers are wrong or vague</strong>: attach the relevant files, switch to "Detailed", or use a larger model. Small models make mistakes, so always review code before applying it.</li>
+              <li><strong>A command fails with "not found"</strong>: that tool isn't installed or isn't on your PATH.</li>
+            </ul>
+            <p class="muted small">Keyboard: <kbd>Enter</kbd> sends, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a new line, <kbd>Esc</kbd> closes dialogs.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toasts" class="toasts" aria-live="assertive"></div>
+
+  <script src="/static/i18n.js?v={{VERSION}}"></script>
+  <script src="/static/markdown.js?v={{VERSION}}"></script>
+  <script src="/static/images.js?v={{VERSION}}"></script>
+  <script src="/static/app.js?v={{VERSION}}"></script>
+  <script src="/static/study.js?v={{VERSION}}"></script>
+  <script src="/static/charts.js?v={{VERSION}}"></script>
+  <script src="/static/learn.js?v={{VERSION}}"></script>
+  <script src="/static/progress.js?v={{VERSION}}"></script>
+  <script src="/static/build.js?v={{VERSION}}"></script>
+  <script src="/static/sessions.js?v={{VERSION}}"></script>
+  <script src="/static/companion.js?v={{VERSION}}"></script>
+</body>
+</html>

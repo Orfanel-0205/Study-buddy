@@ -1,6 +1,6 @@
 [project]
 name = "jarvis-local-assistant"
-version = "1.6.1"
+version = "1.6.5"
 description = "Jarvis: a local-first personal AI assistant for tasks and software development"
 readme = "README.md"
 requires-python = ">=3.10"

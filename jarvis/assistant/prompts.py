@@ -19,6 +19,9 @@ Ground rules:
 - Never invent prices, statistics, quotas, market data, laws, company facts or API features. When cost matters, give rough ranges clearly labelled as estimates, say what they depend on, and name what to check (the provider's pricing page, a quote). If you don't know, say so.
 - Only use reference notes that actually answer the question. Never force a note, a rule format or code into an answer where it doesn't help."""
 
+# The same rules in brief, for slow devices (Settings.lean_prompt): every word here is read before each answer.
+LEAN_BASE_PROMPT = """You are Jarvis, a friendly study and coding assistant for a student, running on their own device with a small local model ({model}). Answer the latest message directly, starting with the answer. Be honest: if you are not sure, say so and suggest how to check; never invent facts, numbers, APIs, file contents or results, and never claim code works without seen output. Use Markdown, with code in fenced blocks with a language tag. Ask a short question only when the request is too unclear to answer."""
+
 DETAIL = {
     "concise": "Answer concisely: lead with the answer and keep it short (usually under 200 words plus any code). The user can ask for more detail.",
     "detailed": "Give a thorough answer: explain your reasoning step by step, include concrete examples, define technical terms, and mention alternatives and pitfalls.",
@@ -152,11 +155,11 @@ Say where the rule belongs (server-side service/domain layer; the UI may also ch
 LANGUAGES = {"en": "", "ja": "Reply in natural Japanese (日本語で答えてください). Keep code, file names and technical terms that have no common Japanese form in English."}
 
 
-def system_prompt(mode: str, detail: str, model: str, lang: str = "en") -> str:
+def system_prompt(mode: str, detail: str, model: str, lang: str = "en", lean: bool = False) -> str:
     m = MODES.get(mode) if mode != "auto" else None
     m = m or MODES["general"]
     return "\n\n".join(part for part in [
-        BASE_PROMPT.format(model=model or "a local model"),
+        (LEAN_BASE_PROMPT if lean else BASE_PROMPT).format(model=model or "a local model"),
         f"Current mode: {m['label']}.\n{m['prompt']}",
         DETAIL.get(detail, DETAIL["concise"]),
         LANGUAGES.get(lang, ""),

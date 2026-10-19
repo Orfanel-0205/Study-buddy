@@ -38,6 +38,7 @@ class ChatOptions:
     context_window: int = 8192
     think: bool = False
     json_schema: dict | None = None  # ask for structured JSON output
+    max_tokens: int | None = None  # stop the answer after this many tokens (None: the model decides)
 
 
 class ProviderError(RuntimeError):

@@ -44,7 +44,12 @@ class Settings(BaseModel):
     vision_model: str = ""  # reads attached images; empty = the chat model if it can, else the best installed one
     temperature: float = Field(0.3, ge=0.0, le=2.0)
     context_window: int = Field(8192, ge=1024, le=262144)
+    max_answer_tokens: int = Field(2048, ge=256, le=32768)  # longest answer (twice this for Detailed)
     think: bool = False  # let "thinking" models reason before answering (slower)
+    # For slow devices (the phone): short instructions, fewer guide notes and less history, so the model
+    # has less to read before the first word. Measured on the phone: 2,300 tokens took 68-116 s, 280 took 4-9 s.
+    lean_prompt: bool = False
+    num_threads: int = Field(0, ge=0, le=64)  # CPU threads for the model; 0 = Ollama decides
     request_timeout: int = Field(600, ge=10, le=7200)
     allow_remote_endpoint: bool = False
 

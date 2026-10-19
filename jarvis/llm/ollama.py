@@ -19,8 +19,10 @@ NOT_RUNNING_HINT = (
 class OllamaProvider(LLMProvider):
     name = "ollama"
 
-    def __init__(self, endpoint: str, timeout: float = 600, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, endpoint: str, timeout: float = 600, transport: httpx.AsyncBaseTransport | None = None,
+                 num_thread: int = 0):
         self.endpoint = endpoint.rstrip("/")
+        self.num_thread = num_thread  # CPU threads (0: Ollama decides); the same for every request, so no reloads
         self._client = httpx.AsyncClient(
             base_url=self.endpoint,
             timeout=httpx.Timeout(timeout, connect=5.0),
@@ -72,6 +74,10 @@ class OllamaProvider(LLMProvider):
             "stream": True,
             "options": {"temperature": options.temperature, "num_ctx": options.context_window},
         }
+        if options.max_tokens:
+            body["options"]["num_predict"] = options.max_tokens
+        if self.num_thread:
+            body["options"]["num_thread"] = self.num_thread
         # Only thinking-capable models accept the flag; others reject think=true.
         if await self.model_supports_thinking(options.model):
             body["think"] = bool(options.think) and options.json_schema is None

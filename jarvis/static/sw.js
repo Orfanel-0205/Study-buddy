@@ -36,6 +36,13 @@ async function cacheArt(cache) {
   for (const p of (await res.json()).packs || []) {
     for (const item of p.items) for (const k of ["file", "half", "blink", "plain", "plain_blink"]) if (item[k]) files.add(ART + item[k]);
   }
+  try { // her recorded voice lines, if they were made (tools/make_companion_voice.py)
+    const v = await fetch(ART + "voice/voice.json", { cache: "no-cache" });
+    if (v.ok) {
+      files.add(ART + "voice/voice.json");
+      for (const lines of Object.values((await v.json()).lines || {})) for (const line of Object.values(lines)) files.add(ART + line.file);
+    }
+  } catch (_) { /* no voice */ }
   await cache.addAll([...files]);
 }
 

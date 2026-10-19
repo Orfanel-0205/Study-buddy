@@ -20,7 +20,7 @@ def create_provider(settings: Settings) -> LLMProvider:
     ensure_local_endpoint(settings)
     if settings.provider == "openai_compatible":
         return OpenAICompatibleProvider(settings.endpoint, timeout=settings.request_timeout)
-    return OllamaProvider(settings.endpoint, timeout=settings.request_timeout)
+    return OllamaProvider(settings.endpoint, timeout=settings.request_timeout, num_thread=settings.num_threads)
 
 
 def pick_model(configured: str, installed: list[str]) -> str:

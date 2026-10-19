@@ -100,6 +100,7 @@
     setTimeout(() => box.remove(), kind === "error" ? 11000 : 5000);
   }
   const showError = (err) => toast(err.message || String(err), "error", err.hint || "");
+  const CUT_NOTE = /\*\(Stopped at the answer length limit[^\n]*\)\*\s*$/; // the server's note on a cut-off answer
 
   function randomId() {
     if (window.crypto && crypto.getRandomValues) {
@@ -318,15 +319,15 @@
       state.conversationId = id;
       const inner = $("#messages-inner");
       fill(inner);
-      for (const m of data.messages) {
+      data.messages.forEach((m, i) => {
         if (m.role === "user") appendUserMessage(m.content, [], m.images);
         else {
           const v = createAssistantMessage();
           v.setSources(m.sources);
           v.setContent(m.content);
-          v.finish({ model: m.model, stopped: m.stopped });
+          v.finish({ model: m.model, stopped: m.stopped, cut: i === data.messages.length - 1 && CUT_NOTE.test(m.content) });
         }
-      }
+      });
       loadConversations();
       scrollToBottom(true);
     } catch (err) { showError(err); }
@@ -448,7 +449,7 @@
             }, `${s.path}${s.kind === "search" ? `:${s.start_line}-${s.end_line}` : ""}`)),
           redactions ? el("span", { class: "muted", text: `(${redactions} secret-looking value${redactions > 1 ? "s" : ""} hidden)` }) : null);
       },
-      finish({ model, stopped, stats }) {
+      finish({ model, stopped, stats, cut }) {
         if (frame) { cancelAnimationFrame(frame); frame = 0; }
         if (content) paint();
         else if (!stopped) fill(md);
@@ -461,7 +462,9 @@
         decorateCodeBlocks(md);
         if (content) {
           actions.hidden = false;
-          fill(actions, 
+          fill(actions,
+            cut ? el("button", { class: "small", title: "The answer reached its length limit: write the rest",
+              onclick: () => sendMessage("Continue", { noImages: true }) }, "Continue") : null,
             el("button", { class: "ghost small", onclick: () => copyText(content) }, "Copy"),
             el("button", { class: "ghost small", title: "Ask for a longer explanation with examples", onclick: () => sendMessage("Please explain your previous answer in more detail, with examples and definitions of any technical terms.", { detail: "detailed", noImages: true }) }, "More detail"),
             el("button", { class: "ghost small", title: "Save this answer as a file in your project (you'll review it first)", onclick: () => openProposeDialog({ path: `docs/jarvis-notes-${new Date().toISOString().slice(0, 10)}.md`, content, note: "Saved from chat" }) }, "Save to project\u2026"),
@@ -567,7 +570,7 @@
       else if (ev.type === "status") view.addStatus(ev.text);
       else if (ev.type === "thinking") view.addThinking(ev.text);
       else if (ev.type === "content") { content += ev.text; view.setContent(content); }
-      else if (ev.type === "done") { ended = true; view.finish({ model: ev.model, stats: ev.stats }); }
+      else if (ev.type === "done") { ended = true; view.finish({ model: ev.model, stats: ev.stats, cut: ev.cut }); }
       else if (ev.type === "stopped") { ended = true; view.finish({ stopped: true }); }
       else if (ev.type === "error") { ended = true; view.showError(ev.message, ev.hint); }
     }

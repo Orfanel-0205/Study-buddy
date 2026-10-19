@@ -113,6 +113,10 @@ def pick_motivation_entries() -> list[dict]:
     return [{k: e[k] for k in ("id", "kind", "source", "themes", "text", "school") if k in e} for e in MOTIVATION_ENTRIES]
 
 
+class PocketModel(BaseModel):
+    model: str = Field(min_length=1, max_length=120)
+
+
 class PageCompanion(BaseModel):
     pose: str = Field(pattern=r"^(cheer|code|study|idea|sleepy|celebrate|pouty|care|relax)$")
     message: str = Field("", max_length=300)
@@ -876,6 +880,31 @@ def create_app(data_dir: Path, *, token: str | None = None, allowed_hosts: set[s
             activity.record("sync", f"Synced with '{device['name']}': {counts['tasks']} task(s), {counts['decks']} "
                             f"deck(s), {counts['cards']} card(s) updated, {counts['deleted']} deleted", **counts)
         return {"server_time": server_time, "changes": outgoing}
+
+    # ------------------------------------------------------------ Jarvis on the phone: choose its model there
+    @app.get("/api/pocket/model")
+    async def pocket_model():
+        if not pocket:
+            raise HTTPException(404, "Only Jarvis on the phone chooses its model here.")
+        st = await holder.status()
+        s = config.get()
+        return {"model": st.get("model") or s.model, "models": st.get("models", []), "max_answer_tokens": s.max_answer_tokens}
+
+    @app.put("/api/pocket/model")
+    async def put_pocket_model(body: PocketModel, request: Request):
+        """One model for chat, coding and (if it can read pictures) photos: two at once wouldn't fit a phone."""
+        if not pocket:
+            raise HTTPException(404, "Only Jarvis on the phone chooses its model here.")
+        models = (await holder.status()).get("models", [])
+        chosen = next((m for m in models if m["name"] == body.model), None)
+        if not chosen:
+            raise HTTPException(400, f"'{body.model}' isn't installed on this phone.")
+        changes = {"model": body.model, "code_model": ""}
+        if "vision" in (chosen.get("capabilities") or []):
+            changes["vision_model"] = body.model
+        config.update(changes)
+        activity.record("settings_changed", f"Model on this phone: {body.model}{via(request)}")
+        return {"model": body.model, "vision_model": config.get().vision_model}
 
     @app.get("/api/sync/status")
     def sync_status():

@@ -69,6 +69,8 @@ class OpenAICompatibleProvider(LLMProvider):
             "stream": True,
             "temperature": options.temperature,
         }
+        if options.max_tokens:
+            body["max_tokens"] = options.max_tokens
         if options.json_schema is not None:
             body["response_format"] = {
                 "type": "json_schema",
@@ -83,6 +85,7 @@ class OpenAICompatibleProvider(LLMProvider):
                             f"The server does not have the model '{options.model}'.",
                             "Choose one of the server's models in Settings.", "model_missing")
                     raise ProviderError(f"Model server returned HTTP {resp.status_code}: {resp.text[:500]}")
+                done_reason = ""
                 async for line in resp.aiter_lines():
                     line = line.strip()
                     if not line.startswith("data:"):
@@ -103,7 +106,8 @@ class OpenAICompatibleProvider(LLMProvider):
                             yield ChatChunk("thinking", thinking)
                         if delta.get("content"):
                             yield ChatChunk("content", delta["content"])
-                yield ChatChunk("done")
+                        done_reason = choice.get("finish_reason") or done_reason  # "length" = cut at max_tokens
+                yield ChatChunk("done", stats={"done_reason": done_reason})
         except httpx.HTTPError as exc:
             raise ProviderError(
                 f"Could not reach the model server at {self.endpoint}: {exc}",

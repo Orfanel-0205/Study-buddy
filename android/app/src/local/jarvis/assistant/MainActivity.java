@@ -93,6 +93,15 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedState) {
         super.onCreate(savedState);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        // 1.6.2: the phone is independent: "Automatic" (laptop when reachable) becomes "This phone" once.
+        // Choosing Laptop or Automatic again in More > Where Jarvis runs still works.
+        if (!prefs.getBoolean("independent_since_1_6_2", false)) {
+            SharedPreferences.Editor e = prefs.edit().putBoolean("independent_since_1_6_2", true);
+            if (termuxInstalled() && !"laptop".equals(prefs.getString("mode", ""))) {
+                e.putString("mode", "phone");
+            }
+            e.apply();
+        }
         data = getSharedPreferences("jarvis_web_data", MODE_PRIVATE);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             WebView.setWebContentsDebuggingEnabled(true); // only in test builds
@@ -105,6 +114,7 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setMediaPlaybackRequiresUserGesture(false); // Study Buddy's recorded voice (only Jarvis pages load here)
         s.setSupportMultipleWindows(false);
         s.setUserAgentString(s.getUserAgentString() + " JarvisApp/" + versionName());
         web.setWebViewClient(new Client());
@@ -143,10 +153,42 @@ public class MainActivity extends Activity {
             return;
         }
         // Back after a while: check again whether the laptop or this phone should answer.
-        if (System.currentTimeMillis() - pausedAt > 10 * 60 * 1000) {
+        long away = System.currentTimeMillis() - pausedAt;
+        if (away > 10 * 60 * 1000) {
             chooseAndOpen();
-        } else if ("auto".equals(mode()) && onPocket()) {
-            switchToLaptopIfReachable(); // e.g. the laptop was off and has been turned on since
+        } else {
+            if (onPocket() && away > 20000) {
+                wakePocket(); // Android may have frozen Termux meanwhile
+            }
+            if ("auto".equals(mode()) && onPocket()) {
+                switchToLaptopIfReachable(); // e.g. the laptop was off and has been turned on since
+            }
+        }
+    }
+
+    private long lastWake = 0;
+
+    /**
+     * Runs the start script quietly, without changing the page. Android (HyperOS especially) freezes
+     * Termux in the background, and a frozen Jarvis takes connections but never answers: this wakes
+     * Termux up, and the script replaces a Jarvis that is still stuck. At most every 15 seconds.
+     */
+    private void wakePocket() {
+        long now = System.currentTimeMillis();
+        if (now - lastWake < 15000 || !termuxInstalled() || checkSelfPermission(RUN_COMMAND) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        lastWake = now;
+        Intent start = new Intent("com.termux.RUN_COMMAND");
+        start.setClassName(TERMUX, "com.termux.app.RunCommandService");
+        start.putExtra("com.termux.RUN_COMMAND_PATH", POCKET_DIR + "/start");
+        start.putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home");
+        start.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+        start.putExtra("com.termux.RUN_COMMAND_COMMAND_LABEL", "Jarvis");
+        try {
+            startForegroundService(start);
+        } catch (Exception ignored) {
+            // Termux couldn't be asked; the page keeps retrying
         }
     }
 
@@ -756,6 +798,22 @@ public class MainActivity extends Activity {
             }
         }
 
+        /** Study Buddy's voice on or off (Settings), for the floating Study Buddy too. */
+        @JavascriptInterface
+        public void setVoice(boolean on) {
+            if (allowed()) {
+                prefs.edit().putBoolean("voice", on).apply();
+            }
+        }
+
+        /** The language her recorded voice speaks: "app" (the app's), "ja" or "en". */
+        @JavascriptInterface
+        public void setVoiceLanguage(String lang) {
+            if (allowed()) {
+                prefs.edit().putString("voice_lang", "ja".equals(lang) || "en".equals(lang) ? lang : "app").apply();
+            }
+        }
+
         @JavascriptInterface
         public void setLanguage(String lang) {
             if (allowed()) {
@@ -824,6 +882,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String sessionState() {
             return allowed() ? CompanionService.stateJson(MainActivity.this) : "{}";
+        }
+
+        /** The page can't reach Jarvis on this phone: wake Termux up (see MainActivity.wakePocket). */
+        @JavascriptInterface
+        public void wakePocket() {
+            if (allowed() && onPocket()) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        MainActivity.this.wakePocket();
+                    }
+                });
+            }
         }
 
         // ---- checking code on this phone while the laptop's Jarvis is on screen

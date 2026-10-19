@@ -17,7 +17,7 @@
   const T = (k, v) => (root.JarvisI18n ? root.JarvisI18n.t(k, v) : k);
   const DEFAULTS = { enabled: true, pack: "study-buddy-2", size: "m", tips: true, word: "open", kinds: "both", focus: "",
     checkin: "daily", pos: null, recent: [], lastWordDay: "", lastCheckinDay: "", wellbeing: "", wellbeingDay: "",
-    grace: 5, cooldown: 15, sessionMinutes: 25, pending: [] };
+    grace: 5, cooldown: 15, sessionMinutes: 25, pending: [], voice: true, voiceLang: "app" };
   const STUDY_MODES = ["study", "explain", "coach"];
   const CODE_MODES = ["implement", "test", "design", "requirements", "rules", "release", "stack"];
   const FX = { celebrate: "sparkle", cheer: "sparkle", pouty: "anger", sleepy: "zzz", code: "code", care: "heart", idea: "think", relax: "music" };
@@ -277,14 +277,79 @@
     root$.classList.toggle("jc-low", p.bottom < window.innerHeight / 2);
   }
 
+  let bubbleUntil = 0, sayAt = 0, speaking = false;
+  function hideBubbleAt(t) {
+    clearTimeout(bubbleTimer);
+    if (t !== Infinity) bubbleTimer = setTimeout(() => { if (!speaking) bubble.hidden = true; }, Math.max(0, t - Date.now()));
+  }
   function say(text, ms, quiet) {
     if (!bubble || !prefs.enabled || (panel && !panel.hidden)) return; // not while her menu is open
-    clearTimeout(bubbleTimer);
+    if (quiet && speaking) return; // what she's saying stays up until she has finished
     bubble.textContent = text;
     bubble.hidden = false;
-    if (!quiet) play("sb-talk");
-    if (ms !== 0) bubbleTimer = setTimeout(() => { bubble.hidden = true; }, ms || 7000);
+    if (!quiet) { play("sb-talk"); sayAt = Date.now(); }
+    bubbleUntil = ms === 0 ? Infinity : Date.now() + (ms || 7000);
+    hideBubbleAt(bubbleUntil);
   }
+
+  // ------------------------------------------------------------------ her voice: lines recorded once (tools/make_companion_voice.py),
+  // played from the app's own files, so it works offline and sends nothing anywhere
+  let voiceLines = null, voiceAudio = null, talking = 0, speechGuard = 0;
+  async function loadVoice() {
+    try {
+      const r = await fetch(BASE + "voice/voice.json", { cache: "no-cache" });
+      voiceLines = r.ok ? await r.json() : null;
+    } catch (_) { voiceLines = null; }
+  }
+  const uiLang = () => (root.JarvisI18n && root.JarvisI18n.lang() === "ja" ? "ja" : "en");
+  /** The language she speaks: the app's, or the one chosen in Settings (if it was recorded). */
+  function voiceLang() {
+    const want = prefs.voiceLang === "ja" || prefs.voiceLang === "en" ? prefs.voiceLang : uiLang();
+    return voiceLines && voiceLines.lines[want] ? want : uiLang();
+  }
+  /** While she speaks, her bubble stays up; in another language it also shows her exact words. */
+  function showSpeech(sp) {
+    if (!bubble || !prefs.enabled || (panel && !panel.hidden)) return;
+    if (!sp.fresh || bubble.hidden) { bubble.textContent = sp.meaning; bubble.hidden = false; bubbleUntil = Date.now(); }
+    const old = bubble.querySelector(".jc-said");
+    if (old) old.remove();
+    if (sp.said) bubble.appendChild(h("span", { class: "jc-said", lang: sp.lang, text: sp.said }));
+    speaking = true;
+    bubble.classList.add("jc-speaking");
+    clearTimeout(bubbleTimer);
+  }
+  function endSpeech() {
+    clearInterval(talking);
+    clearTimeout(speechGuard);
+    if (!speaking) return;
+    speaking = false;
+    if (bubble) { bubble.classList.remove("jc-speaking"); hideBubbleAt(Math.max(bubbleUntil, Date.now() + 2500)); }
+  }
+  function voice(key) {
+    if (!voiceLines || !prefs.voice || !prefs.enabled || document.hidden) return;
+    const ui = uiLang(), lang = voiceLang();
+    const line = (voiceLines.lines[lang] || {})[key] || (voiceLines.lines.en || {})[key];
+    if (!line) return;
+    const meaning = ((voiceLines.lines[ui] || {})[key] || line).text || "";
+    // a bubble said just now already carries the meaning; otherwise her line is shown
+    const sp = { fresh: Date.now() - sayAt < 800, meaning, said: lang !== ui ? line.text : "", lang };
+    try {
+      if (voiceAudio) { voiceAudio.pause(); endSpeech(); }
+      const me = voiceAudio = new Audio();
+      me.addEventListener("playing", () => {
+        if (voiceAudio !== me) return;
+        clearInterval(talking); play("sb-talk"); talking = setInterval(() => play("sb-talk"), 650);
+        showSpeech(sp);
+        clearTimeout(speechGuard); // in case the end is never reported
+        speechGuard = setTimeout(endSpeech, ((isFinite(me.duration) && me.duration) || 12) * 1000 + 1500);
+      });
+      for (const ev of ["ended", "pause", "error"]) me.addEventListener(ev, () => { if (voiceAudio === me) endSpeech(); });
+      me.src = BASE + line.file;
+      const started = me.play();
+      if (started && started.catch) started.catch(() => { /* the browser waits for a first tap before sound */ });
+    } catch (_) { /* no audio here */ }
+  }
+  const helloKey = () => { const hr = new Date().getHours(); return hr < 5 ? "hello_late" : hr < 12 ? "hello_morning" : hr < 18 ? "hello_afternoon" : hr < 23 ? "hello_evening" : "hello_late"; };
 
   function greeting() {
     const hr = new Date().getHours();
@@ -355,11 +420,13 @@
     lastSaid = Date.now();
     flash("cheer", 1500);
     say(T("sb.sessionStart", { kind: kindName(kind), m: minutes || 25 }), 5000);
+    voice(kind === "study" ? "start_study" : "start_coding");
   }
   function endSession() { engine.stop(); refresh(); }
   function startBreak(minutes) {
     engine.startBreak(minutes);
     refresh();
+    voice("break_start");
     if (focusState && focusState.supported && focusState.enabled) host.api("/api/focus/snooze", { method: "POST", body: { minutes, break: true } }).catch(() => {});
   }
   function endBreak() {
@@ -367,6 +434,7 @@
     activeSince = Date.now();
     flash("cheer", 4000);
     say(T("sb.breakEnded"), 6000);
+    voice("break_end");
   }
 
   /** Every second: the session's clock, its events, and her bubble. */
@@ -375,20 +443,24 @@
       if (ev.type === "nudge") {
         const msg = T("sb.nudge", { m: ev.minutes });
         say(msg, 15000);
+        voice("nudge");
         if (!engine.native) notify(msg, "pouty"); // on Android the app sends the notification itself
         if (host.place === "desktop") reportPose("pouty", msg);
       } else if (ev.type === "back") {
         flash("cheer", 2500);
         say(T("sb.back"), 4000);
+        voice("back");
       } else if (ev.type === "done") {
         const msg = T("sb.sessionDoneKind", { kind: kindName(ev.kind) });
         flash("celebrate", 8000);
         say(msg, 9000);
+        voice(ev.kind === "study" ? "done_study" : "done_coding");
         if (!engine.native) notify(msg, "celebrate");
       } else if (ev.type === "breakOver") {
         activeSince = Date.now();
         flash("cheer", 4000);
         say(T("sb.breakEnded"), 6000);
+        voice("break_end");
       }
     }
     const st = engine.state();
@@ -412,7 +484,7 @@
   function scheduleTips() {
     setInterval(() => {
       if (!prefs.enabled || !prefs.tips || engine.state().breakLeft || document.hidden) return;
-      if ((Date.now() - activeSince) / 60000 >= 50) { activeSince = Date.now(); flash("care", 8000); say(T("sb.longWork"), 12000); }
+      if ((Date.now() - activeSince) / 60000 >= 50) { activeSince = Date.now(); flash("care", 8000); say(T("sb.longWork"), 12000); voice("long_work"); }
     }, 60000);
   }
 
@@ -530,6 +602,7 @@
               showAdvice(r.advice, resolve, kind);
             } }, T("ci.save")))));
       document.body.append(card);
+      voice("checkin");
       card.querySelector(".ci-scale button").focus({ preventScroll: true });
       card.addEventListener("keydown", (e) => { if (e.key === "Escape") close(null); });
     });
@@ -645,6 +718,15 @@
       h("span", { class: "jc-set-label", text: T("set.pack") }), preview,
       row(T("set.size"), select("size", [["s", T("set.small")], ["m", T("set.medium")], ["l", T("set.large")]], build)),
       row(T("set.tips"), check("tips")),
+      voiceLines ? row(T("set.voice"), check("voice", () => {
+        if (host.native && typeof host.native.setVoice === "function") { try { host.native.setVoice(!!prefs.voice); } catch (_) { /* old app */ } }
+        if (prefs.voice) voice(helloKey());
+      }), (voiceLines.credit || "") + ". " + T("set.voiceHint")) : null,
+      voiceLines && voiceLines.lines.en && voiceLines.lines.ja ? row(T("set.voiceLang"), select("voiceLang",
+        [["app", T("set.voiceLangApp")], ["ja", T("set.voiceLangJa")], ["en", T("set.voiceLangEn")]], () => {
+          if (host.native && typeof host.native.setVoiceLanguage === "function") { try { host.native.setVoiceLanguage(prefs.voiceLang); } catch (_) { /* old app */ } }
+          if (prefs.voice) voice(helloKey());
+        }), T("set.voiceLangHint")) : null,
       row(T("set.checkin"), select("checkin", [["daily", T("set.ciDaily")], ["session", T("set.ciSession")], ["off", T("set.ciOff")]])),
       row(T("set.wordWhen"), select("word", [["open", T("set.wordEvery")], ["daily", T("set.wordDaily")], ["off", T("set.wordOff")]])),
       row(T("set.kind"), select("kinds", [["both", T("set.both")], ["philosophy", T("set.philosophy")], ["verses", T("set.verses")], ["quotes", T("set.quotes")]])),
@@ -727,6 +809,7 @@
       engine = { native: false, start: none, stop: none, pause: none, resume: none, snooze: none, startBreak: none, endBreak: none,
         activity: none, tick: () => [], state: () => ({ session: null, breakLeft: 0, snoozedLeft: 0, inactiveFor: 0, pouting: false }) };
     }
+    await loadVoice();
     build();
     clearInterval(sessionTimer);
     sessionTimer = setInterval(tickSessions, 1000);
@@ -742,19 +825,19 @@
       if (prefs.checkin === "daily" && prefs.lastCheckinDay !== today()) await checkin("open");
       showWord(false);
     }, 700);
-    setTimeout(() => { if (prefs.tips) say(greeting() + " " + T("sb.tap"), 5000); }, 1500);
+    setTimeout(() => { if (prefs.tips) { say(greeting() + " " + T("sb.tap"), 5000); if (!document.querySelector(".jc-checkin")) voice(helloKey()); } }, 1500);
   }
 
   function setContext(c) { ctx = { ...ctx, ...(c || {}) }; refresh(); }
   function react(event, detail) {
-    if (event === "tests_passed") { flash("celebrate", 8000); say(detail || T("sb.passed"), 7000); }
-    else if (event === "tests_failed") { flash("care", 6000); say(detail || T("sb.failed"), 7000); }
-    else if (event === "review_done") { flash("cheer", 6000); say(detail || T("sb.reviewsDone"), 6000); }
+    if (event === "tests_passed") { flash("celebrate", 8000); say(detail || T("sb.passed"), 7000); voice("passed"); }
+    else if (event === "tests_failed") { flash("care", 6000); say(detail || T("sb.failed"), 7000); voice("failed"); }
+    else if (event === "review_done") { flash("cheer", 6000); say(detail || T("sb.reviewsDone"), 6000); voice("reviews_done"); }
     else if (event === "thinking") { setContext({ thinking: !!detail }); }
   }
   function wellbeing() { return prefs.wellbeingDay === today() ? prefs.wellbeing : ""; }
 
   const session = () => (engine ? engine.state() : null);
   root.JarvisCompanion = { mount, setContext, react, say, showWord, settingsCard, checkin, wellbeing, startSession, endSession,
-    startBreak, poseNow, session, blink };
+    startBreak, poseNow, session, blink, voice };
 })(this);

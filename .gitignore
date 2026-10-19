@@ -6,3 +6,8 @@ venv/
 android/build/
 android/dist/
 evals/results/
+
+# ElevenLabs recordings: for your own use (your plan's terms), not for publishing
+jarvis/static/companion/voice/
+android/app/assets/companion/voice/
+*.key

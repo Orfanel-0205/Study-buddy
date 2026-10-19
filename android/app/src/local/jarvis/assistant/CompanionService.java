@@ -13,6 +13,9 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.GradientDrawable;
+import android.content.res.AssetFileDescriptor;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -77,6 +80,7 @@ public class CompanionService extends Service {
     private String reaction = "", overridePose = "";
     private float tilt = 0;
     private String lang = "en";
+    private MediaPlayer voice;
 
     // ---------------------------------------------------------------- the session, shared with the page (MainActivity.Bridge)
     static synchronized FocusSession session(Context c) {
@@ -213,6 +217,10 @@ public class CompanionService extends Service {
     @Override
     public void onDestroy() {
         instance = null;
+        if (voice != null) {
+            voice.release();
+            voice = null;
+        }
         ui.removeCallbacksAndMessages(null);
         removeWindow();
         saveSession(this, true);
@@ -299,6 +307,59 @@ public class CompanionService extends Service {
         }
     }
 
+    /** Study Buddy's recorded voice line (assets/companion/voice, made by tools/make_companion_voice.py), if present. */
+    private void speak(String key) {
+        if (!prefs.getBoolean("voice", true)) {
+            return;
+        }
+        String said = prefs.getString("voice_lang", "app");
+        if (!"ja".equals(said) && !"en".equals(said)) {
+            said = lang; // the app's language
+        }
+        try {
+            AssetFileDescriptor afd;
+            try {
+                afd = getAssets().openFd("companion/voice/" + said + "/" + key + ".mp3");
+            } catch (Exception e) {
+                said = "en";
+                afd = getAssets().openFd("companion/voice/en/" + key + ".mp3");
+            }
+            if (!said.equals(lang) && bubble != null && bubble.getVisibility() == View.VISIBLE) {
+                try { // in another language, her bubble also shows her exact words
+                    String words = new JSONObject(readAsset("companion/voice/voice.json")).getJSONObject("lines")
+                            .getJSONObject(said).getJSONObject(key).optString("text", "");
+                    if (!words.isEmpty()) {
+                        bubble.setText(bubble.getText() + "\n「" + words + "」");
+                    }
+                } catch (Exception ignored) {
+                    // the message alone
+                }
+            }
+            if (voice != null) {
+                voice.release();
+            }
+            voice = new MediaPlayer();
+            voice.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            voice.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
+            afd.close();
+            voice.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(MediaPlayer mp) {
+                    mp.release();
+                    if (voice == mp) {
+                        voice = null;
+                    }
+                }
+            });
+            voice.prepare();
+            voice.start();
+            react("talk");
+        } catch (Exception ignored) {
+            // no recordings in this build: she stays quiet
+        }
+    }
+
     private void cancelAlert() {
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(ID_FOCUS);
     }
@@ -329,6 +390,9 @@ public class CompanionService extends Service {
                         "むー！" + m + "分もJarvisで何もしてないよ。まだいる？");
                 alert(msg, true);
                 say(msg, 15000);
+                if (!appVisible) {
+                    speak("nudge"); // inside Jarvis the page speaks
+                }
                 saveSession(CompanionService.this, true);
             }
             if ((events & FocusSession.DONE) != 0) {
@@ -337,12 +401,16 @@ public class CompanionService extends Service {
                 say(msg, 9000);
                 if (!appVisible) {
                     alert(msg, false);
+                    speak("study".equals(kind) ? "done_study" : "done_coding");
                 }
                 saveSession(CompanionService.this, true);
             }
             if ((events & FocusSession.BREAK_OVER) != 0) {
                 flash("cheer", 4000);
                 say(t("Break over. Ready for one small step?", "休憩おしまい。小さな一歩からいこう。"), 7000);
+                if (!appVisible) {
+                    speak("break_end");
+                }
             }
             if (events != 0) {
                 foreground();

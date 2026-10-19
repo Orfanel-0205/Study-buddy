@@ -217,8 +217,11 @@
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
     } catch (e) {
       if (e.name === "AbortError" && !timedOut) throw e; // stopped by the user
-      const err = new Offline("Can't reach Jarvis on your computer.");
-      err.hint = "Make sure Jarvis is running with phone access on, and that this phone is on the same Wi-Fi.";
+      const err = new Offline(POCKET ? "Jarvis on this phone isn't answering yet." : "Can't reach Jarvis on your computer.");
+      err.hint = POCKET ? "It's being woken up (Android pauses Termux in the background); that usually takes a few seconds."
+        : "Your computer is only reachable on your home Wi-Fi, with Jarvis running and phone access on. On mobile data, " +
+          "choose \u201cThis phone\u201d in More \u203a Where Jarvis runs.";
+      wakePocket();
       if (state.token) goOffline();
       throw err;
     } finally {
@@ -304,6 +307,15 @@
   let reconnectTimer = 0;
   let failedProbes = 0;
   let searched = false;
+  // Android (HyperOS especially) freezes Termux in the background: a frozen Jarvis takes connections
+  // but never answers. The app can wake it up (and replace it if it's stuck): see MainActivity.wakePocket.
+  let lastWake = 0;
+  function wakePocket(now) {
+    if (!POCKET || !NATIVE || typeof NATIVE.wakePocket !== "function" || (!now && Date.now() - lastWake < 15000)) return false;
+    lastWake = Date.now();
+    try { NATIVE.wakePocket(); return true; } catch (_) { return false; }
+  }
+
   function goOffline() {
     if (!state.online) return;
     state.online = false;
@@ -330,7 +342,7 @@
         if (failedProbes === 2 && !searched) { searched = true; findComputer(); }
         scheduleReconnect();
       }
-    }, delay === undefined ? 8000 : delay);
+    }, delay === undefined ? (POCKET ? 4000 : 8000) : delay);
   }
   async function goOnline() {
     if (!$(".m-app")) { state.online = true; return start(); }
@@ -345,9 +357,13 @@
     if (sent) toast(`Back online · synced ${sent} change${sent === 1 ? "" : "s"} to your computer`);
     await refreshStatus();
     if (state.tab === "tasks") loadTasks();
-    else if (state.tab === "chat") renderChat();
-    else if (state.tab === "study") renderStudy();
-    else renderMore();
+    else showTab(state.tab);
+    if (state.pending) { // a message that couldn't be sent while Jarvis was asleep
+      const { text, detail } = state.pending;
+      state.pending = null;
+      if (state.tab !== "chat") showTab("chat");
+      sendMessage(text, detail);
+    }
   }
 
   async function syncOutbox() {
@@ -378,8 +394,12 @@
         ", flashcard reviews, Study Buddy and focus sessions, check-ins, Build (plan, decide, numbers, hackathon)" +
         (offlinePack() ? ", the guides" : "") + ".";
       fill(banner, el("div", { class: "notice warn" }, el("strong", { text: POCKET ? "Jarvis on this phone isn't answering yet." : "Offline: can't reach your computer." }),
-        el("div", { class: "small", text: works + (POCKET ? " It may still be starting; chat and code checking come back by themselves."
+        el("div", { class: "small", text: works + (POCKET ? " It's being woken up; chat and code checking come back by themselves."
           : " Chat and AI need Jarvis; this app reconnects by itself.") }),
+        POCKET ? el("div", { class: "small", text: "If this happens often, Android is pausing Termux: Settings \u203a Apps \u203a Termux \u203a " +
+          "Battery saver \u203a No restrictions (and turn on Autostart)." }) : null,
+        POCKET && NATIVE && typeof NATIVE.wakePocket === "function" ? el("button", { type: "button", class: "ghost", style: "padding-left:0",
+          onclick: () => { wakePocket(true); toast("Waking up Jarvis on this phone\u2026"); scheduleReconnect(3000); } }, "Wake it up now") : null,
         IN_APP && NATIVE && !POCKET ? el("button", { type: "button", class: "ghost", style: "padding-left:0", onclick: findComputer }, "Search the Wi-Fi for my computer") : null));
       fill($("#m-sub"), el("span", { class: "dot bad" }), `${POCKET ? "This phone" : state.computer || "Computer"} · offline`);
       return;
@@ -627,8 +647,10 @@
       sendBtn.disabled = true;
       fill($("#m-messages"), el("div", { class: "welcome" },
         el("div", { class: "m-mark", "aria-hidden": "true" }, "J"),
-        el("h2", { text: "Chat needs your computer" }),
-        el("p", { class: "muted small", text: "Answers come from the model running on your computer, which this phone can't reach right now. Your tasks still work offline." }),
+        el("h2", { text: POCKET ? "Chat needs Jarvis on this phone" : "Chat needs your computer" }),
+        el("p", { class: "muted small", text: POCKET
+          ? "It isn't answering yet (Android pauses Termux in the background). It's being woken up, and chat comes back by itself. Meanwhile tasks, flashcards, guides, Build and Study Buddy work offline."
+          : "Answers come from the model running on your computer, which this phone can't reach right now. Your tasks still work offline." }),
         el("button", { type: "button", class: "block", onclick: () => showTab("tasks") }, "Go to tasks")));
       return;
     }
@@ -733,7 +755,9 @@
       }
     };
     return {
-      setContent(text) { content = text; if (!frame) frame = requestAnimationFrame(paint); },
+      // While an answer streams in, redraw a few times a second (not every frame): re-rendering the whole
+      // answer takes CPU, and on the phone the model runs on the same CPU (see README, "Faster answers").
+      setContent(text) { content = text; if (!frame) frame = setTimeout(paint, PAINT_MS); },
       addStatus(text) { statusBox.hidden = false; statusBox.append(el("div", { text: "\u2022 " + text })); scrollDown(); },
       addThinking(text) { thought += text; thinking.hidden = false; $("pre", thinking).textContent = thought; },
       setSources(list) {
@@ -749,8 +773,8 @@
           } }, "📘 " + (s.title || s.path))
           : el("span", { class: "chip", text: s.path })));
       },
-      finish({ model, stopped }) {
-        if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      finish({ model, stopped, cut }) {
+        if (frame) { clearTimeout(frame); frame = 0; }
         if (content) paint();
         else md.replaceChildren(el("p", { class: "muted", text: stopped ? "(Stopped before any answer was written.)" : "" }));
         if (stopped) meta.append(el("span", { class: "badge stopped", text: "stopped" }));
@@ -759,13 +783,14 @@
         if (content) {
           actions.hidden = false;
           fill(actions,
+            cut ? el("button", { type: "button", onclick: () => sendMessage("Continue", "", true) }, "Continue") : null,
             el("button", { class: "ghost", type: "button", onclick: () => copyText(content) }, "Copy"),
             el("button", { class: "ghost", type: "button", onclick: () => sendMessage("Please explain your previous answer in more detail, with examples and definitions of any technical terms.", "detailed") }, "More detail"));
         }
         scrollDown();
       },
       fail(message, hint) {
-        if (frame) { cancelAnimationFrame(frame); frame = 0; }
+        if (frame) { clearTimeout(frame); frame = 0; }
         if (content) paint(); else md.replaceChildren();
         fill(extra, el("div", { class: "notice bad" }, el("strong", { text: message }), hint ? el("div", { class: "small", text: hint }) : null));
         decorate();
@@ -774,10 +799,10 @@
     };
   }
 
-  async function sendMessage(text, detail) {
+  async function sendMessage(text, detail, noPictures) {
     if (state.streaming) return toast("Jarvis is still answering. Tap stop first.", "error");
     if (!$("#m-messages")) showTab("chat");
-    const pictures = detail === "detailed" ? [] : (state.pictures || []).splice(0);
+    const pictures = detail === "detailed" || noPictures ? [] : (state.pictures || []).splice(0);
     renderPictures();
     addUserMessage(text, pictures);
     const view = addAssistantMessage();
@@ -794,7 +819,7 @@
       else if (ev.type === "status") view.addStatus(ev.text);
       else if (ev.type === "thinking") view.addThinking(ev.text);
       else if (ev.type === "content") { content += ev.text; view.setContent(content); }
-      else if (ev.type === "done") { ended = true; view.finish({ model: ev.model }); }
+      else if (ev.type === "done") { ended = true; view.finish({ model: ev.model, cut: ev.cut }); }
       else if (ev.type === "stopped") { ended = true; view.finish({ stopped: true }); }
       else if (ev.type === "error") { ended = true; view.fail(ev.message, ev.hint); }
     }
@@ -823,7 +848,10 @@
       if (!ended) view.finish({ stopped: true });
     } catch (err) {
       if (err.name === "AbortError") { if (!ended) view.finish({ stopped: true }); }
-      else view.fail(err.message, err.hint);
+      else if (err instanceof Offline && POCKET && !content) {
+        state.pending = { text, detail };
+        view.fail(err.message, "Your message is kept and will be sent as soon as Jarvis on this phone answers.");
+      } else view.fail(err.message, err.hint);
     } finally {
       state.streaming = null;
       setBusy(false);
@@ -850,15 +878,15 @@
       const box = $("#m-messages");
       if (!box) return;
       fill(box);
-      for (const m of data.messages) {
+      data.messages.forEach((m, i) => {
         if (m.role === "user") addUserMessage(m.content, [], m.images);
         else {
           const v = addAssistantMessage();
           v.setSources(m.sources);
           v.setContent(m.content);
-          v.finish({ model: m.model, stopped: m.stopped });
+          v.finish({ model: m.model, stopped: m.stopped, cut: i === data.messages.length - 1 && CUT_NOTE.test(m.content) });
         }
-      }
+      });
       scrollDown(true);
     } catch (err) {
       if (err.status === 404) { state.conversationId = null; renderWelcome(); }
@@ -1191,6 +1219,8 @@
   // ------------------------------------------------------------------ learn: guides, practice, API Lab, stand-up
   // chat modes that use Jarvis's built-in guides (in Auto only when a guide really answers the question)
   const GUIDE_MODES = ["auto", "study", "explain", "coach", "rules", "business", "stack", "hackathon"];
+  const CUT_NOTE = /\*\(Stopped at the answer length limit[^\n]*\)\*\s*$/; // the server's note on a cut-off answer
+  const PAINT_MS = 200; // redraw a streaming answer at most 5 times a second
   const LANG_LABEL = { python: "Python", javascript: "JavaScript", typescript: "TypeScript", php: "PHP" };
   const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
@@ -1715,19 +1745,45 @@
     const mode = NATIVE && typeof NATIVE.mode === "function" ? NATIVE.mode() : "auto";
     const option = (value, label) => el("a", { href: "jarvisapp:use-" + value, class: "mode-option" + (mode === value ? " active" : "") }, label);
     const sync = el("p", { class: "small muted", text: POCKET ? "Checking sync\u2026" : "" });
-    if (POCKET) loadSyncStatus(sync);
+    const model = el("div");
+    if (POCKET) { loadSyncStatus(sync); loadPocketModel(model); }
     return el("div", { class: "card" }, el("h3", { text: "Where Jarvis runs" }),
       el("p", { class: "small", text: POCKET
-        ? "Now: on this phone. Answers come from the small model on the phone; your tasks and flashcards sync with the laptop when it's reachable."
+        ? "Now: on this phone. Answers come from the model on the phone, with no laptop or internet needed."
         : "Now: on your laptop (bigger models). If the laptop isn't reachable, the app switches to Jarvis on this phone." }),
       el("div", { class: "mode-row" }, option("auto", "Automatic"), option("laptop", "Laptop"), option("phone", "This phone")),
-      sync);
+      sync, model);
+  }
+
+  /** Jarvis on this phone: which model answers (one model does chat, coding and photos). */
+  async function loadPocketModel(box) {
+    let st;
+    try { st = await api("/api/pocket/model"); } catch (_) { box.replaceChildren(); return; }
+    const gb = (b) => (b ? ` \u00b7 ${(b / 1e9).toFixed(1)} GB` : "");
+    const select = el("select", { "aria-label": "Model on this phone" },
+      st.models.filter((m) => !/embed/i.test(m.name)).map((m) => el("option", { value: m.name, selected: m.name === st.model },
+        `${m.name}${m.parameter_size ? " \u00b7 " + m.parameter_size : ""}${gb(m.size_bytes)}`)));
+    select.addEventListener("change", async () => {
+      select.disabled = true;
+      try { await api("/api/pocket/model", { method: "PUT", body: { model: select.value } }); toast("This phone now answers with " + select.value); }
+      catch (err) { showError(err); }
+      select.disabled = false;
+      refreshStatus();
+    });
+    fill(box, el("h3", { text: "Model on this phone" }),
+      el("p", { class: "muted small", text: "Bigger models answer better but more slowly, and need more of the phone's memory. " +
+        "Models over about 4 GB don't fit next to Android and your apps. Answers stop after " + st.max_answer_tokens +
+        " tokens (twice that for Detailed) so a model can't run for minutes." }), select);
   }
 
   async function loadSyncStatus(box) {
     let st;
     try { st = await api("/api/sync/status"); } catch (_) { box.textContent = ""; return; }
-    if (!st.enabled) { box.textContent = "Not set up to sync with the laptop."; return; }
+    if (!st.enabled) {
+      box.textContent = st.pocket ? "Independent: this phone doesn't sync with the laptop. Your tasks, cards and chats stay on this phone."
+        : "Not set up to sync with the laptop.";
+      return;
+    }
     const when = st.last_ok ? fmtWhen(st.last_ok) : "not yet";
     fill(box, `Last synced with the laptop: ${when}.`, st.last_error ? el("div", { text: "Last try: " + st.last_error.slice(0, 120) }) : null,
       el("button", { class: "ghost", style: "padding-left:0", onclick: async (e) => {

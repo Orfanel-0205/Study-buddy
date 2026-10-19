@@ -74,6 +74,8 @@ PHONE_API = [(m, re.compile(p + r"$")) for m, p in [
 POCKET_ONLY_API = [(m, re.compile(p + r"$")) for m, p in [
     ("POST", r"/api/learn/exercises/[a-z0-9-]+/run"),
     ("POST", r"/api/learn/runtimes/refresh"),
+    ("GET", r"/api/pocket/model"),  # Jarvis on the phone has no laptop to change its settings from
+    ("PUT", r"/api/pocket/model"),
 ]]
 
 # Pages and assets the phone may load before pairing (nothing secret in them).

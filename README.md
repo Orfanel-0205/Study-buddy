@@ -100,7 +100,14 @@ No API key or account is used.
 - **Context size** (default 8192 tokens): how much text the model sees at once. Lower it if
   answers are slow or you run out of memory; raise it for big files if you have memory to spare.
 - **Thinking** (off by default): models such as qwen3 can "reason" before answering. It's slower
-  but sometimes better. You can read the reasoning in a collapsible panel.
+  but sometimes better. You can read the reasoning in a collapsible panel. Thinking has its own budget
+  (about 1,500 tokens) on top of the answer's: if a model is still thinking past it, Jarvis stops the
+  thinking and answers directly. Requests to *write* code (an app, a script, a function…) skip thinking
+  and get twice the answer length, because a small model can otherwise spend the whole limit thinking
+  (measured: qwen3:1.7b thought for 3,000 tokens and wrote 0 lines of a to-do app; without thinking it
+  wrote 189 lines in 26 seconds).
+- **Continue**: an answer that reaches the length limit ends with a note and a **Continue** button,
+  which carries on exactly where it stopped (in the same mode and with the same model).
 
 ---
 
@@ -541,11 +548,46 @@ tokens of reasoning at 8.6 tokens per second), so thinking is **off** on the pho
    download), and pairs the phone's copy with the laptop's for syncing. Each step can be run again safely.
    If Android stops Jarvis on the phone while it works, run it again with `--allow-background`: that also
    turns off Android's "phantom process" limit (a system setting; the undo command is printed).
-3. On the phone: **Settings → Apps → Termux → Battery saver → No restrictions**.
+3. On the phone: **Settings → Apps → Termux → Battery saver → No restrictions**, and turn on
+   **Autostart** for Termux (do the same for the Jarvis app). This matters: without it, Android
+   (HyperOS especially) *freezes* Termux in the background, and Jarvis then takes connections but never
+   answers ("Jarvis on this phone isn't answering yet"). Since 1.6.2 the app wakes Termux up when you come
+   back and whenever Jarvis doesn't answer, and the start script replaces a Jarvis that is still stuck,
+   so it recovers by itself; the setting stops it happening in the first place.
 4. Open the Jarvis app. The first time it starts Jarvis on the phone, allow it to *run commands in Termux*.
 
+**Bigger models and a fully independent phone.** Any model installed on the computer can be copied to the
+phone over USB (no download), then chosen for chat, coding or photos; `--no-sync` stops the phone syncing
+with the laptop, so it depends on nothing:
+```powershell
+python android/setup_pocket.py --copy-models gemma3:4b qwen2.5-coder:7b
+python android/setup_pocket.py --chat-model gemma3:4b --code-model qwen2.5-coder:7b --no-sync
+```
+Bigger models answer better but more slowly and use more of the phone's memory (see the measurements
+above). The phone keeps its own tasks, flashcards, chats and check-ins; nothing goes to the laptop.
+
+**Faster answers on the phone (1.6.4).** Before writing a word, the model reads the whole prompt, and on a
+phone that takes most of the wait. So Jarvis on the phone uses a *short prompt*: brief instructions, a
+short guide note only when one matches, and about the last exchange (`lean_prompt`). It also uses 4 CPU
+threads (`num_threads`), one per fast core. Measured on the POCO X7 Pro with qwen3:1.7b in the middle of a
+conversation: the first word came after **14 s instead of 59 s**, then about 22 tokens per second.
+
+The number of threads matters most when the Jarvis app is on screen, because the app needs some CPU too.
+With Ollama's default (8 threads, every core) the model wrote **5.6 tokens per second**. With 4 threads it
+wrote **16-18**: only about 20% slower than with Termux on screen, the home screen or the screen off (21-22).
+2 threads was slower (13). Android doesn't otherwise slow Termux down, as long as its battery setting is
+*No restrictions*. Since 1.6.5 the phone page also redraws a streaming answer at most 5 times a second
+instead of once per word, which leaves a little more CPU to the model.
+qwen3:1.7b answers text (it scored about the same as gemma3:4b in the evaluation and is about twice as
+fast on the phone) and gemma3:4b reads photos:
+```powershell
+python android/setup_pocket.py --chat-model qwen3:1.7b --code-model "" --vision-model gemma3:4b --threads 4 --prompt lean
+```
+`--prompt full` brings back the laptop's full prompt. For long code, the laptop is much faster.
+
 **How the app chooses** (More → *Where Jarvis runs*):
-- *This phone* (default once Termux is installed): always Jarvis on the phone, so nothing depends on the laptop.
+- *This phone* (default once Termux is installed; 1.6.2 also switches *Automatic* to it once, for an
+  independent phone): always Jarvis on the phone, so nothing depends on the laptop.
 - *Automatic*: uses the laptop when it's reachable (bigger models), otherwise starts Jarvis on the phone.
 - *Laptop*: always the laptop.
 
@@ -554,7 +596,7 @@ Study → Practice runs your code's tests on the phone's own Jarvis (the app sta
 the first check can take up to a minute). Code typed on the phone still never runs on the laptop. The
 app allows only the practice-exercise calls for this.
 
-**Syncing:** tasks and flashcard decks/cards made on either side are copied to the other whenever
+**Syncing** (off with `--no-sync`): tasks and flashcard decks/cards made on either side are copied to the other whenever
 the phone's Jarvis can reach the laptop (every few minutes, or tap *Sync now*). If the same item was
 changed on both sides, the most recent change wins. Deletions sync too. Chats, project files and
 settings are **not** synced; each side keeps its own.
@@ -574,6 +616,33 @@ notification until you stop it there (*Exit*), which also frees the phone's memo
 Turn on **Read aloud** in Settings to have answers spoken using **offline voices only**. Jarvis
 ignores online voices. Voice *input* is not included, because browser speech recognition sends audio
 to online services.
+
+**Study Buddy's own voice (recorded once).** Study Buddy can speak her fixed lines (greetings, the
+check-in, session start and end, the "still with me?" reminder, breaks, test results) in English and
+Japanese. They're recorded **once** on your computer and then played from Jarvis's own files, on the
+laptop and the phone (also from the floating Study Buddy), with no internet.
+
+*Free, on your PC: VOICEVOX.* Install and open the [VOICEVOX](https://voicevox.hiroshiba.jp/) app (its
+engine runs on 127.0.0.1:50021; nothing leaves your PC), then:
+1. `python tools/make_companion_voice.py --samples 四国めたん 九州そら ずんだもん` writes
+   *Downloads\Study Buddy voices.html* to compare characters (`--list-voicevox` lists them all).
+2. `python tools/make_companion_voice.py --voicevox 四国めたん` records every line. Each line uses the
+   character's style for its mood (annoyed for the reminder, whispering late at night, sweet for a
+   check-in); `--speed`, `--pitch` and `--intonation` change how she talks.
+3. Rebuild the Android app (`python android/build_apk.py --install`) and copy the code to the phone
+   (`python android/setup_pocket.py --code-only`).
+
+VOICEVOX reads English with a Japanese accent. VOICEVOX's terms ask for the credit
+"VOICEVOX:<character>", which Settings shows, and each character has its own terms of use.
+
+*Or ElevenLabs* (an outside service, only when you run the tool; it sends just those 34 fixed lines):
+put your API key in `%APPDATA%\Jarvis\elevenlabs.key` and run the tool with no options (a paid plan is
+needed for library voices), or use the free website with `--website` and `--import`.
+
+In Settings → Study Buddy, *Study Buddy's voice* turns her voice off and *She speaks* picks the language
+she speaks: the app's, Japanese or English. While she speaks, her bubble stays up with a small sound
+wave. When she speaks a different language from the app, the bubble also shows her exact words under
+the message. The recordings are for your own use and are kept out of the Git repository.
 
 ---
 
@@ -617,6 +686,8 @@ Everything is editable in **Settings**, or in `config.json` (restart Jarvis afte
 | `temperature` | `0.3` | Randomness (0–2). Lower is more focused |
 | `context_window` | `8192` | Tokens the model sees at once |
 | `think` | `false` | Let thinking-capable models reason first |
+| `lean_prompt` | `false` | Short instructions, guide notes and history, for slow devices (on for the phone) |
+| `num_threads` | `0` | CPU threads for the model; `0` = Ollama decides (4 on the phone) |
 | `request_timeout` | `600` | Seconds to wait for the model |
 | `allow_remote_endpoint` | `false` | Allow a model server on another machine (sends your data there) |
 | `detail` | `concise` | Default answer length: `concise` / `detailed` |

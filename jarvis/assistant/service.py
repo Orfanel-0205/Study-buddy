@@ -28,7 +28,39 @@ log = logging.getLogger(__name__)
 CHARS_PER_TOKEN = 3.2
 ANSWER_RESERVE_TOKENS = 1500
 CODE_MODES = {"implement", "test"}  # modes that use the code model when one is set
-GROUNDED_MODES = {"business", "stack", "hackathon"}  # answers include guide notes + the tech catalog
+GROUNDED_MODES = {"business", "stack", "hackathon"}
+LOOP_NOTE = "\n\n*(Stopped here: the answer started repeating itself. Try rephrasing, or a larger model.)*"
+LENGTH_NOTE = "\n\n*(Stopped at the answer length limit. Tap Continue for the rest.)*"
+NOTES = re.compile(r"\n\n\*\(Stopped (?:here: the answer started repeating|at the answer length limit)[^\n]*\)\*\s*$")
+CUT = re.compile(r"\*\(Stopped at the answer length limit[^\n]*\)\*\s*$")
+# A thinking model can spend its whole answer budget thinking (measured: qwen3:1.7b thought for 3,000 tokens
+# and wrote 0 lines of a to-do app). Thinking gets its own budget; past it, Jarvis answers without thinking.
+THINK_BUDGET_TOKENS = 1536
+THINK_NOTE = "Thought for a long time without answering, so answering directly now…"
+# Asking to write code: no thinking (the answer needs the room) and twice the answer length.
+WRITES_CODE = re.compile(
+    r"\b(write|create|build|make|generate|implement|code up)\b.{0,80}?\b(code|apps?|application|script|program|"
+    r"functions?|class(es)?|module|files?|api|endpoints?|components?|page|website|game|bot|cli|tests?)\b"
+    r"|(コード|プログラム|スクリプト|アプリ|関数|クラス|テスト).{0,20}?(書いて|作って|作成|実装)", re.I | re.S)
+CONTINUE_WORDS = {"continue", "go on", "keep going", "続けて", "続き"}
+CONTINUE_PROMPT = ("Continue exactly where your last answer stopped. Don't repeat anything you already wrote and "
+                   "don't start over. If you stopped inside a code block, continue the code and close the block.")
+LEAN_GUIDE_CHARS, LEAN_CATALOG_CHARS = 600, 1000  # lean prompts: a short note at most
+LEAN_HISTORY_CHARS, LEAN_MESSAGE_CHARS = 1400, 700  # about the last exchange, shortened
+
+
+def repeating(text: str) -> bool:
+    """True when the end of an answer is the same words over and over (a model stuck in a loop): a piece of
+    text with real words in it, repeated 4+ times (at least 120 characters), or the same wordy line 6 times
+    in a row. Tables, divider lines and other repeated symbols don't count."""
+    words = lambda t: sum(c.isalpha() for c in t)  # noqa: E731
+    tail = text[-1600:]
+    for period in range(30, min(400, len(tail) // 4) + 1):
+        piece = tail[-period:]
+        if words(piece) >= 12 and tail.endswith(piece * 4):
+            return True
+    lines = [ln.strip() for ln in tail.splitlines() if ln.strip()]
+    return len(lines) >= 6 and len(set(lines[-6:])) == 1 and words(lines[-1]) >= 12  # answers include guide notes + the tech catalog
 # Models that can read images, best first (only installed ones are ever used).
 VISION_PREFERRED = ["gemma3:12b", "qwen2.5vl:7b", "gemma3:4b", "llama3.2-vision:latest", "qwen3-vl:4b",
                     "qwen3-vl:2b", "minicpm-v:latest", "llava:7b", "llava:latest", "moondream:latest"]
@@ -47,7 +79,7 @@ class ProviderHolder:
 
     def get(self) -> LLMProvider:
         s = self.config.get()
-        key = (s.provider, s.endpoint, s.request_timeout, s.allow_remote_endpoint)
+        key = (s.provider, s.endpoint, s.request_timeout, s.allow_remote_endpoint, s.num_threads)
         with self._lock:
             if self._provider is None or key != self._key:
                 self._provider = self.factory(s)  # raises EndpointNotLocalError for remote endpoints
@@ -224,15 +256,21 @@ class Assistant:
                 "base your answer on it (it may be outdated if files changed since).\n"
                 f"```text\n{output}\n```")
 
-    def _history(self, conv_id: int, exclude_id: int, budget_chars: int) -> list[dict]:
+    def _history(self, conv_id: int, exclude_id: int, budget_chars: int, per_message: int = 4000) -> list[dict]:
         msgs = [m for m in self.conversations.messages(conv_id) if m["id"] != exclude_id and m["content"].strip()]
         picked: list[dict] = []
         used = 0
         for m in reversed(msgs):
             content = m["content"]
-            if len(content) > 4000:
-                content = content[:4000] + "\n...(earlier message shortened)"
-            if used + len(content) > budget_chars:
+            cut = bool(CUT.search(content))
+            content = NOTES.sub("", content)  # Jarvis's own notes aren't part of the answer
+            if len(content) > per_message:  # an answer that was cut off keeps its end, to continue from
+                content = ("...(earlier part shortened)\n" + content[-per_message:] if cut
+                           else content[:per_message] + "\n...(earlier message shortened)")
+            room = budget_chars - used
+            if len(content) > room:
+                if m["role"] == "user" and picked and room >= 120:  # keep the question the kept answer replies to
+                    picked.append({"role": "user", "content": content[:room] + "\n...(shortened)"})
                 break
             if m.get("images"):
                 content += f"\n(The user attached {len(m['images'])} image(s) here.)"
@@ -252,6 +290,11 @@ class Assistant:
         s = self.config.get()
         mode = mode if mode in MODES else "general"
         routed_note = ""
+        continuing = bool(conversation_id) and message.strip().lower().rstrip(".!。") in CONTINUE_WORDS
+        if continuing:  # carry on a cut-off answer in the same mode, so with the same model
+            last = [m for m in self.conversations.messages(conversation_id) if m["role"] == "assistant"]
+            if last and last[-1].get("mode") in MODES:
+                mode = last[-1]["mode"]
         if mode == "auto":  # pick the mode from the question, and say which (see router.py)
             mode, _ = route(message)
             routed_note = f"Auto: answering as {MODES[mode]['label']}"
@@ -294,7 +337,11 @@ class Assistant:
             if note:
                 yield {"type": "status", "text": note}
             ctx_chars = int(s.context_window * CHARS_PER_TOKEN)
-            sys_text = system_prompt(mode, detail, model, lang)
+            lean = s.lean_prompt
+            long_code = continuing or mode == "implement" or bool(WRITES_CODE.search(message))
+            answer_tokens = s.max_answer_tokens * (2 if detail == "detailed" or long_code else 1)
+            think = s.think and not long_code
+            sys_text = system_prompt(mode, detail, model, lang, lean=lean)
             if wellbeing and mode in ("coach", "study", "business", "hackathon", "general"):
                 sys_text += ("\n\nHow the user said they feel today (from their check-in; take it into account gently, "
                              "e.g. smaller steps when tired or stressed, but don't dwell on it): " + wellbeing[:300])
@@ -337,42 +384,69 @@ class Assistant:
                 sources = [*sources, {"path": "$ " + run.command, "start_line": 0, "end_line": 0, "kind": "command"}]
                 yield {"type": "sources", "sources": sources, "redactions": 0}
             guide_text = ""
-            if use_guides and self.guides is not None:
-                guide_budget = max(800, min(4500, int(ctx_chars * 0.3)))
+            if use_guides and self.guides is not None and not continuing:
+                guide_budget = LEAN_GUIDE_CHARS if lean else max(800, min(4500, int(ctx_chars * 0.3)))
                 guide_text, guide_sources = await asyncio.to_thread(self.guides.context_for, message, guide_budget)
                 if guide_sources:
                     sources = [*sources, *guide_sources]
                     yield {"type": "sources", "sources": sources, "redactions": 0}
             catalog_text = ""
-            if mode in GROUNDED_MODES:
+            if mode in GROUNDED_MODES and not continuing:
                 recent = " ".join(m["content"] for m in self.conversations.messages(conv["id"])[-6:] if m["role"] == "user")
-                catalog_text = build_catalog.context_for(recent + " " + message, budget=2400)
+                catalog_text = build_catalog.context_for(recent + " " + message, budget=LEAN_CATALOG_CHARS if lean else 2400)
             context = "\n\n".join(part for part in (project_text, guide_text, catalog_text, evidence) if part)
-            user_text = message if not context else (
-                f"{context}\n\n---\nUsing the project context above where relevant, respond to:\n{message}")
-            history_budget = ctx_chars - len(sys_text) - len(user_text) - int(ANSWER_RESERVE_TOKENS * CHARS_PER_TOKEN)
-            history = self._history(conv["id"], user_msg["id"], max(history_budget, 0))
+            asked = CONTINUE_PROMPT if continuing else message
+            user_text = asked if not context else (
+                f"{context}\n\n---\nUsing the project context above where relevant, respond to:\n{asked}")
+            history_budget = (ctx_chars - len(sys_text) - len(user_text)
+                              - int(max(ANSWER_RESERVE_TOKENS, answer_tokens) * CHARS_PER_TOKEN))
+            per_message = 4000
+            if lean:  # continuing needs more of the answer it continues
+                history_budget = min(history_budget, LEAN_HISTORY_CHARS + (1200 if continuing else 0))
+                per_message = 1500 if continuing else LEAN_MESSAGE_CHARS
+            history = self._history(conv["id"], user_msg["id"], max(history_budget, 0), per_message)
             final = {"role": "user", "content": user_text}
             if images and self.images:
                 final["images"] = [await asyncio.to_thread(self.images.base64, name) for name in images]
             messages = [{"role": "system", "content": sys_text}, *history, final]
-            options = ChatOptions(model=model, temperature=s.temperature, context_window=s.context_window,
-                                  think=s.think)
             stats: dict = {}
-            async for chunk in _with_cancel(provider.chat_stream(messages, options), cancel):
-                if chunk.kind == "content":
-                    content_parts.append(chunk.text)
-                    yield {"type": "content", "text": chunk.text}
-                elif chunk.kind == "thinking":
-                    yield {"type": "thinking", "text": chunk.text}
-                elif chunk.kind == "done":
-                    stats = chunk.stats
+            note = ""
+            while True:
+                options = ChatOptions(model=model, temperature=s.temperature, context_window=s.context_window, think=think,
+                                      max_tokens=answer_tokens + (THINK_BUDGET_TOKENS if think else 0))
+                thought, rethink = 0, False
+                stream = _with_cancel(provider.chat_stream(messages, options), cancel)
+                async for chunk in stream:
+                    if chunk.kind == "content":
+                        content_parts.append(chunk.text)
+                        yield {"type": "content", "text": chunk.text}
+                        if len(content_parts) % 25 == 0 and repeating("".join(content_parts[-400:])):
+                            note = LOOP_NOTE  # a small model stuck in a loop: stop it instead of running for minutes
+                            break
+                    elif chunk.kind == "thinking":
+                        yield {"type": "thinking", "text": chunk.text}
+                        thought += 1  # one token per streamed piece
+                        if thought > THINK_BUDGET_TOKENS and not content_parts:
+                            rethink = True
+                            break
+                    elif chunk.kind == "done":
+                        stats = chunk.stats
+                        if stats.get("done_reason") == "length":
+                            note = LENGTH_NOTE
+                await stream.aclose()  # also after stopping a loop: the model stops working right away
+                if not rethink:
+                    break
+                think = False  # thinking used its budget: answer directly instead
+                yield {"type": "status", "text": THINK_NOTE}
+            if note:
+                content_parts.append(note)
+                yield {"type": "content", "text": note}
             msg = save(False)
             if msg is None:
                 yield {"type": "error", "message": "The model returned an empty answer.",
                        "hint": "Try again, rephrase the question, or pick a larger model in Settings."}
             else:
-                yield {"type": "done", "message_id": msg["id"], "model": model, "stats": stats}
+                yield {"type": "done", "message_id": msg["id"], "model": model, "stats": stats, "cut": note == LENGTH_NOTE}
         except ChatCancelled:
             msg = save(True)
             yield {"type": "stopped", "message_id": msg["id"] if msg else None}
